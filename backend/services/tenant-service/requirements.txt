@@ -1,0 +1,14 @@
+# Tenant service requirements (microservice stage)
+# The Dockerfile also installs the shared library requirements
+# (authentication-service/requirements.txt) which provides jose, bcrypt,
+# httpx and uvicorn; the pins below match that superset.
+fastapi==0.139.0
+uvicorn==0.51.0
+SQLAlchemy==2.0.51
+pydantic==2.13.4
+pydantic-settings==2.14.2
+email-validator==2.3.0
+PyMySQL==1.2.0
+httpx==0.28.1
+python-jose==3.5.0
+bcrypt==5.0.0

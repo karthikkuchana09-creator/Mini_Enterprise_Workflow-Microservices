@@ -1,0 +1,15 @@
+# ECWF Shared Module Requirements
+# Python 3.12
+
+# Validation
+pydantic==2.13.4
+pydantic-settings==2.14.2
+
+# Email validation
+email-validator==2.3.0
+
+# Async HTTP client (internal service calls)
+httpx==0.28.1
+
+# Database
+SQLAlchemy==2.0.51

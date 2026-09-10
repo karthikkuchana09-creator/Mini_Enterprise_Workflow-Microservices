@@ -1,0 +1,182 @@
+# ============================================================
+# ECWF - Independent FastAPI microservices (Docker Compose)
+#
+# Three independent microservices, each running its own uvicorn
+# process and its own database on a single shared MySQL server:
+#
+#   - auth-service        (:8001) owns ecwf_auth_db
+#   - tenant-service      (:8003) owns ecwf_tenant_db
+#   - notification-service(:8004) no database (SMTP / email only)
+#
+# Inter-service communication happens over REST APIs (HTTPX),
+# secured by a shared INTERNAL_API_KEY (X-Internal-API-Key).
+# ============================================================
+
+services:
+  # ============================================================
+  # Auth Service (Identity, registration, OTP, tokens, users)
+  # ============================================================
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/authentication-service/Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - PYTHONPATH=/app:/app/shared:/app/authentication-service:/app/tenant-service:/app/notification-service
+      - APP_NAME=ECWF Tool
+      - APP_VERSION=1.0.0
+      - DEBUG=${DEBUG:-true}
+      - SERVICE_MODE=microservices
+      - DATABASE_URL=mysql+pymysql://auth_user:auth_password@mysql:3306/ecwf_auth_db
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - JWT_ALGORITHM=HS256
+      - JWT_ISSUER=ecwf-auth
+      - ACCESS_TOKEN_EXPIRE_MINUTES=30
+      - REFRESH_TOKEN_EXPIRE_DAYS=7
+      - PERSONAL_EMAIL_DOMAINS=["gmail.com","yahoo.com","outlook.com","hotmail.com","icloud.com"]
+      - OTP_EXPIRE_MINUTES=5
+      - OTP_TOKEN_EXPIRE_MINUTES=5
+      - OTP_MAX_ATTEMPTS=3
+      - OTP_LENGTH=6
+      - OTP_RESEND_COOLDOWN_SECONDS=60
+      - PASSWORD_MIN_LENGTH=8
+      - PASSWORD_MAX_LENGTH=128
+      - PASSWORD_REQUIRE_UPPERCASE=true
+      - PASSWORD_REQUIRE_LOWERCASE=true
+      - PASSWORD_REQUIRE_NUMBER=true
+      - PASSWORD_REQUIRE_SPECIAL=true
+      - COOKIE_DOMAIN=
+      - COOKIE_SECURE=${COOKIE_SECURE:-true}
+      - COOKIE_HTTPONLY=true
+      - COOKIE_SAMESITE=strict
+      - COOKIE_PATH=/
+      - ACCESS_TOKEN_COOKIE_NAME=access_token
+      - REFRESH_TOKEN_COOKIE_NAME=refresh_token
+      - OTP_TOKEN_COOKIE_NAME=otp_token
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-replace_with_secure_internal_api_key}
+      - TENANT_SERVICE_URL=http://tenant-service:8003
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8004
+      - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL:-noreply@ecwf.com}
+      - CORS_ORIGINS=["http://localhost:3000"]
+    volumes:
+      - ./services:/app/services
+    networks:
+      - ecwf-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ============================================================
+  # Tenant Service (Organizations, admins, invitations)
+  # ============================================================
+  tenant-service:
+    build:
+      context: .
+      dockerfile: services/tenant-service/Dockerfile
+    ports:
+      - "8003:8003"
+    environment:
+      - PYTHONPATH=/app:/app/shared:/app/authentication-service:/app/tenant-service:/app/notification-service
+      - APP_NAME=ECWF Tenant Service
+      - SERVICE_MODE=microservices
+      - DATABASE_URL=mysql+pymysql://tenant_user:tenant_password@mysql:3306/ecwf_tenant_db
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - JWT_ALGORITHM=HS256
+      - JWT_ISSUER=ecwf-auth
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-replace_with_secure_internal_api_key}
+      - AUTH_SERVICE_URL=http://auth-service:8001
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8004
+      - CORS_ORIGINS=["http://localhost:3000"]
+    volumes:
+      - ./services:/app/services
+    networks:
+      - ecwf-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ============================================================
+  # Notification Service (Email / SMTP)
+  # ============================================================
+  notification-service:
+    build:
+      context: .
+      dockerfile: services/notification-service/Dockerfile
+    ports:
+      - "8004:8004"
+    environment:
+      - PYTHONPATH=/app:/app/shared:/app/authentication-service:/app/tenant-service:/app/notification-service
+      - APP_NAME=ECWF Notification Service
+      - SERVICE_MODE=microservices
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-replace_with_secure_internal_api_key}
+      - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL:-noreply@ecwf.com}
+      - CORS_ORIGINS=["http://localhost:3000"]
+    volumes:
+      - ./services:/app/services
+    networks:
+      - ecwf-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ============================================================
+  # MySQL Database Server (shared by all microservices)
+  # One MySQL container hosts ecwf_auth_db, ecwf_tenant_db,
+  # and ecwf_notification_db.
+  # ============================================================
+  mysql:
+    image: mysql:8.0
+    ports:
+      - "3308:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./infrastructure/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - ecwf-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    restart: unless-stopped
+
+networks:
+  ecwf-network:
+    driver: bridge
+    name: ecwf-network
+
+volumes:
+  mysql_data:
+    name: ecwf-mysql-data-new

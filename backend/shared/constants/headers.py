@@ -1,0 +1,3 @@
+CORRELATION_ID_HEADER = "X-Correlation-ID"
+INTERNAL_API_KEY_HEADER = "X-Internal-API-Key"
+IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
